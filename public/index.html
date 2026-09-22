@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>NEWS FILTER PRO 2.1</title>
+<style>
+:root{font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#e8edf5;background:#0b1020}
+*{box-sizing:border-box}body{margin:0;background:linear-gradient(180deg,#0b1020,#11182a);min-height:100vh}
+main{max-width:1100px;margin:0 auto;padding:32px 18px 60px}
+header{margin-bottom:22px}.badge{display:inline-block;padding:6px 10px;border-radius:999px;background:#1b2740;color:#9fc3ff;font-size:12px;font-weight:700}
+h1{margin:12px 0 6px;font-size:32px}p{color:#aeb8c9;line-height:1.6}
+.search{display:flex;gap:10px;background:#121a2c;border:1px solid #26334d;padding:12px;border-radius:14px;position:sticky;top:10px;z-index:2}
+input{flex:1;min-width:0;background:#0b1120;border:1px solid #33415d;color:#fff;border-radius:10px;padding:13px 14px;font-size:16px}
+button{border:0;border-radius:10px;padding:0 20px;background:#4d83ff;color:#fff;font-weight:800;cursor:pointer}
+button:disabled{opacity:.55;cursor:wait}.notice{margin:16px 0;padding:13px 15px;border:1px solid #33415d;background:#10182a;border-radius:12px;color:#b9c5d8}
+#status{margin:18px 0;color:#9fb0c8}.grid{display:grid;gap:14px}
+.card{background:#121a2b;border:1px solid #283651;border-radius:16px;padding:18px}
+.top{display:flex;justify-content:space-between;gap:15px;align-items:flex-start}.title{font-size:18px;font-weight:800;line-height:1.45}
+.score{white-space:nowrap;font-weight:900}.meta{font-size:13px;color:#91a0b7;margin:9px 0 14px}
+.label{display:inline-block;padding:5px 9px;border-radius:8px;background:#202b40;margin-bottom:10px;font-size:13px}
+ul{margin:8px 0 0;padding-left:20px;color:#bdc8d9}li{margin:5px 0}.links{display:flex;gap:12px;margin-top:14px;flex-wrap:wrap}
+a{color:#8eb5ff;text-decoration:none}.preview{margin-top:14px;color:#aeb9ca;font-size:14px;line-height:1.6;background:#0d1423;padding:12px;border-radius:10px}
+.empty{text-align:center;padding:40px;border:1px dashed #33415d;border-radius:14px;color:#91a0b7}
+footer{margin-top:25px;color:#78879f;font-size:12px}
+
+.recommend{margin:24px 0}.recommend-head{display:flex;justify-content:space-between;align-items:center;gap:16px;margin-bottom:12px}
+.recommend h2{margin:0 0 4px;font-size:21px}.recommend p{margin:0;font-size:13px}
+.recommend-head button{height:42px;padding:0 14px}
+@media(max-width:650px){.search{flex-direction:column;position:static}button{height:46px}.top{flex-direction:column}}
+</style>
+</head>
+<body>
+<main>
+<header>
+  <span class="badge">NEWS FILTER PRO 2.1 · WEB</span>
+  <h1>뉴스/칼럼 검증 보조</h1>
+  <p>Google News 검색 결과를 가져와 출처, 원문 접근 여부, 표현, 게시일, 제목 유사도 등을 바탕으로 사람이 추가 확인할 필요가 있는 신호를 보여줍니다.</p>
+</header>
+
+<form class="search" id="form">
+  <input id="q" autocomplete="off" placeholder="검색할 키워드 입력 (예: 인공지능, 경제, 정책)" required>
+  <button id="submit">검색</button>
+</form>
+
+<div class="notice">⚡ 검색은 원문 분석이 끝나는 기사부터 바로 표시되며, 원문 분석 대상은 최대 6개입니다.<br>⚠️ 이 서비스는 '가짜뉴스 판정기'가 아닙니다. 점수는 사실 여부나 가짜뉴스 확률을 의미하지 않으며, 추가 검증이 필요한 정도를 보여주는 보조 신호입니다.</div>
+
+<section class="recommend">
+  <div class="recommend-head">
+    <div>
+      <h2>📰 추천 뉴스</h2>
+      <p>주요·최신 뉴스 검색 결과를 여러 주제로 모아 추천합니다. 추천 뉴스는 최대 12개이며, 가능한 경우 최소 2개를 표시합니다.</p>
+    </div>
+    <button type="button" id="recommendBtn">추천 새로고침</button>
+  </div>
+  <div id="recommendations" class="grid"><div class="empty">추천 뉴스를 불러오는 중…</div></div>
+</section>
+
+<div id="status"></div>
+
+<section id="results" class="grid"><div class="empty">검색어를 입력하면 결과가 표시됩니다.</div></section>
+
+<footer>원문 분석은 각 웹사이트의 구조·접근 정책에 따라 제한될 수 있습니다. 로그인/유료벽/JavaScript 렌더링 페이지는 일부 정보만 표시될 수 있습니다.</footer>
+</main>
+
+<script>
+const form=document.querySelector("#form"), q=document.querySelector("#q"), btn=document.querySelector("#submit");
+const statusEl=document.querySelector("#status"), results=document.querySelector("#results");
+
+function esc(s){return String(s??"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));}
+function fmtDate(s){if(!s)return "확인 불가";const d=new Date(s);return Number.isNaN(d.getTime())?s:d.toLocaleString("ko-KR");}
+function card(a,i){
+  const reasons=(a.reasons||[]).map(x=>`<li>${esc(x)}</li>`).join("");
+  const verify=(a.verification||[]).map(x=>`<li>${esc(x)}</li>`).join("");
+  const preview=(a.page_text||a.description||"").slice(0,420);
+  return `<article class="card">
+    <div class="top"><div class="title">${i+1}. ${esc(a.title)}</div><div class="score">${esc(a.score)}점</div></div>
+    <div class="meta">${esc(a.source||a.final_url||"출처 확인 불가")} · ${esc(fmtDate(a.published))} · ${esc(a.fetch_status)}</div>
+    <span class="label">${esc(a.label)}</span>
+    ${reasons?`<div><b>주의 신호</b><ul>${reasons}</ul></div>`:"<div>주의 신호: 특별한 위험 신호가 많이 발견되지 않음</div>"}
+    ${verify?`<div style="margin-top:12px"><b>교차/근거</b><ul>${verify}</ul></div>`:""}
+    ${preview?`<div class="preview">${esc(preview)}${preview.length>=420?"…":""}</div>`:""}
+    <div class="links">${a.final_url?`<a href="${esc(a.final_url)}" target="_blank" rel="noopener noreferrer">원문 열기 ↗</a>`:""}</div>
+  </article>`;
+}
+
+const recommendations=document.querySelector("#recommendations");
+const recommendBtn=document.querySelector("#recommendBtn");
+
+function recommendationCard(a,i){
+  const preview=(a.description||"").slice(0,180);
+  return `<article class="card">
+    <div class="top"><div class="title">${i+1}. ${esc(a.title)}</div><div class="score">${esc(a.label||"추천")}</div></div>
+    <div class="meta">${esc(a.source||domainOfSafe(a.link)||"출처 확인 불가")} · ${esc(fmtDate(a.published))}</div>
+    ${preview?`<div class="preview">${esc(preview)}${preview.length>=180?"…":""}</div>`:""}
+    <div class="links">${a.link?`<a href="${esc(a.link)}" target="_blank" rel="noopener noreferrer">기사 열기 ↗</a>`:""}</div>
+  </article>`;
+}
+function domainOfSafe(url){
+  try{return new URL(url).hostname.replace(/^www\\./,"")}catch{return "";}
+}
+async function loadRecommendations(){
+  recommendBtn.disabled=true;
+  recommendations.innerHTML='<div class="empty">📰 추천 뉴스를 불러오는 중…</div>';
+  try{
+    const r=await fetch("/api/recommendations");
+    const data=await r.json();
+    if(!r.ok) throw new Error(data.error||`HTTP ${r.status}`);
+    recommendations.innerHTML=data.articles?.length
+      ? data.articles.map(recommendationCard).join("")
+      : '<div class="empty">현재 추천 뉴스가 없습니다. 잠시 후 다시 시도해주세요.</div>';
+  }catch(err){
+    recommendations.innerHTML=`<div class="empty">❌ ${esc(err.message||err)}</div>`;
+  }finally{recommendBtn.disabled=false;}
+}
+recommendBtn.addEventListener("click",loadRecommendations);
+loadRecommendations();
+
+form.addEventListener("submit",async e=>{
+  e.preventDefault(); const keyword=q.value.trim(); if(!keyword)return;
+  btn.disabled=true; statusEl.textContent="🔎 Google News 검색 중… 원문 분석이 끝나는 기사부터 바로 표시합니다. (최대 6개)";
+  results.innerHTML='<div class="empty">🔎 검색 결과를 준비하는 중…</div>';
+  try{
+    const r=await fetch(`/api/search?q=${encodeURIComponent(keyword)}`);
+    if(!r.ok) throw new Error(`HTTP ${r.status}`);
+    if(!r.body) throw new Error("브라우저가 스트리밍 응답을 지원하지 않습니다.");
+
+    const reader=r.body.getReader();
+    const decoder=new TextDecoder();
+    let buffer="";
+    let shown=[];
+
+    while(true){
+      const {value,done}=await reader.read();
+      if(done) break;
+      buffer+=decoder.decode(value,{stream:true});
+      const lines=buffer.split("\n");
+      buffer=lines.pop()||"";
+
+      for(const line of lines){
+        if(!line.trim()) continue;
+        const data=JSON.parse(line);
+        if(data.error) throw new Error(data.error);
+
+        if(data.type==="start"){
+          statusEl.textContent=`📊 ${data.count}개 결과 발견 · 원문 분석 ${data.analyzeTarget}개 · 완료되는 순서대로 표시합니다.`;
+          results.innerHTML='<div class="empty">⏳ 첫 번째 기사 분석이 끝나면 바로 표시됩니다…</div>';
+        }else if(data.type==="article"){
+          shown.push(data.article);
+          // 완료된 기사부터 즉시 화면에 추가한다. 전체 분석 완료를 기다리지 않는다.
+          results.innerHTML=shown.map(card).join("");
+          statusEl.textContent=`⚡ ${data.completed}/${data.total}개 원문 분석 완료 · 완료된 기사부터 표시 중`;
+        }else if(data.type==="done"){
+          statusEl.textContent=data.count?`📊 ${data.count}개 결과 · 원문 분석 ${data.analyzed}개 완료`:`검색 결과가 없습니다.`;
+          results.innerHTML=data.articles?.length?data.articles.map(card).join(""):`<div class="empty">검색 결과가 없습니다.</div>`;
+        }
+      }
+    }
+  }catch(err){
+    statusEl.textContent="❌ 오류";
+    results.innerHTML=`<div class="empty">${esc(err.message||err)}</div>`;
+  }finally{btn.disabled=false;}
+});
+</script>
+</body>
+</html>
